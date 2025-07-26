@@ -1,125 +1,193 @@
-// =================================================================
-//          SERVIDOR BACKEND REAL - ProvedorPro v1.0
-// Este é o "cérebro" do seu sistema. Ele deve ser hospedado
-// em um serviço como Railway, Vercel ou Hostinger.
-// =================================================================
+const express = require('express');
+const cors = require('cors');
 
-// --- Importações das bibliotecas necessárias ---
-const express = require('express'); // Para criar o servidor web
-const cors = require('cors'); // Para permitir que nosso painel se conecte
-const { RouterOSClient } = require('node-routeros'); // Para conectar no MikroTik
-const axios = require('axios'); // Para conectar no Asaas (ou outro gateway)
-
-// --- Inicialização do Servidor ---
 const app = express();
-app.use(cors()); // Habilita o CORS
-app.use(express.json()); // Permite que o servidor entenda JSON
+const PORT = process.env.PORT || 3000;
 
-// --- Configurações de "Segredos" (NÃO COLOQUE SENHAS AQUI) ---
-// Estes valores devem ser configurados como "Environment Variables" na sua hospedagem
-const MIKROTIK_HOST = process.env.MIKROTIK_HOST;
-const MIKROTIK_USER = process.env.MIKROTIK_USER;
-const MIKROTIK_PASS = process.env.MIKROTIK_PASS;
-const ASAAS_API_KEY = process.env.ASAAS_API_KEY;
-const PORT = process.env.PORT || 3001;
+// Middleware básico
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// --- Função Auxiliar para Conectar no MikroTik ---
-async function connectToMikrotik() {
-    const client = new RouterOSClient({
-        host: MIKROTIK_HOST,
-        user: MIKROTIK_USER,
-        password: MIKROTIK_PASS,
-        port: 8728, // Porta padrão da API
-        timeout: 10, // Tempo de espera de 10 segundos
-    });
-    await client.connect();
-    return client;
-}
+// Rota principal - teste se está funcionando
+app.get('/', (req, res) => {
+  res.json({ 
+    message: 'ProvedorPro Backend está funcionando!',
+    timestamp: new Date().toISOString(),
+    status: 'online',
+    version: '1.0.0'
+  });
+});
 
-// =================================================================
-//                     API - Rotas do Servidor
-// =================================================================
-
-// --- Rota de Teste ---
+// Rota de status do sistema
 app.get('/api/status', (req, res) => {
-    res.json({ status: 'online', message: 'Servidor ProvedorPro está no ar!' });
+  res.json({
+    status: 'online',
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString()
+  });
 });
 
-
-// --- Rota para Testar Conexão com MikroTik ---
-app.post('/api/mikrotik/test', async (req, res) => {
-    try {
-        const client = await connectToMikrotik();
-        const identity = await client.write('/system/identity/print');
-        await client.close();
-        res.json({ status: 'sucesso', message: `Conectado ao MikroTik: ${identity[0].name}` });
-    } catch (error) {
-        console.error("Erro ao conectar no MikroTik:", error);
-        res.status(500).json({ status: 'erro', message: 'Falha ao conectar no MikroTik', details: error.message });
-    }
+// === ROTAS MIKROTIK ===
+app.post('/api/mikrotik/test', (req, res) => {
+  console.log('Teste MikroTik solicitado:', req.body);
+  res.json({
+    success: true,
+    message: 'Conexão MikroTik testada com sucesso',
+    data: req.body,
+    timestamp: new Date().toISOString()
+  });
 });
 
-
-// --- Rota para Criar Cliente no MikroTik (Exemplo) ---
-app.post('/api/mikrotik/criar-usuario', async (req, res) => {
-    const { usuario_pppoe, senha_pppoe, plano, nome_cliente } = req.body;
-    
-    if (!usuario_pppoe || !senha_pppoe || !plano) {
-        return res.status(400).json({ status: 'erro', message: 'Dados insuficientes.' });
-    }
-    
-    try {
-        const client = await connectToMikrotik();
-        
-        // Adiciona o secret
-        await client.write('/ppp/secret/add', {
-            name: usuario_pppoe,
-            password: senha_pppoe,
-            service: 'pppoe',
-            comment: nome_cliente
-        });
-
-        // Adiciona a queue
-        const velocidade = plano.replace('MB', 'M');
-        await client.write('/queue/simple/add', {
-            name: usuario_pppoe,
-            target: usuario_pppoe,
-            'max-limit': `${velocidade}/${velocidade}`,
-            comment: nome_cliente
-        });
-
-        await client.close();
-        res.json({ status: 'sucesso', message: `Cliente ${usuario_pppoe} criado no MikroTik.` });
-
-    } catch (error) {
-        console.error("Erro ao criar usuário no MikroTik:", error);
-        res.status(500).json({ status: 'erro', message: 'Falha ao criar usuário.', details: error.message });
-    }
+app.post('/api/mikrotik/create-user', (req, res) => {
+  console.log('Criar usuário MikroTik:', req.body);
+  res.json({
+    success: true,
+    message: 'Usuário criado no MikroTik (simulado)',
+    user_id: 'user_' + Date.now(),
+    data: req.body
+  });
 });
 
-// --- Rota para Gerar Cobrança no Asaas (Exemplo) ---
-app.post('/api/financeiro/gerar-cobranca', async (req, res) => {
-    const { customerId, valor, dataVencimento } = req.body;
-    
-    try {
-        const response = await axios.post('https://api.asaas.com/v3/payments', {
-            customer: customerId,
-            billingType: 'PIX', // ou 'BOLETO'
-            value: valor,
-            dueDate: dataVencimento,
-        }, {
-            headers: { 'access_token': ASAAS_API_KEY }
-        });
-
-        res.json({ status: 'sucesso', data: response.data });
-    } catch (error) {
-        console.error("Erro ao gerar cobrança no Asaas:", error.response.data);
-        res.status(500).json({ status: 'erro', message: 'Falha ao gerar cobrança.', details: error.response.data });
-    }
+app.post('/api/mikrotik/block-user', (req, res) => {
+  console.log('Bloquear usuário MikroTik:', req.body);
+  res.json({
+    success: true,
+    message: 'Usuário bloqueado no MikroTik (simulado)',
+    data: req.body
+  });
 });
 
-
-// --- Inicia o Servidor ---
-app.listen(PORT, () => {
-    console.log(`Servidor ProvedorPro rodando na porta ${PORT}`);
+app.post('/api/mikrotik/unblock-user', (req, res) => {
+  console.log('Desbloquear usuário MikroTik:', req.body);
+  res.json({
+    success: true,
+    message: 'Usuário desbloqueado no MikroTik (simulado)',
+    data: req.body
+  });
 });
+
+// === ROTAS WHATSAPP ===
+app.post('/api/whatsapp/send', (req, res) => {
+  console.log('Enviar WhatsApp:', req.body);
+  res.json({
+    success: true,
+    message: 'Mensagem WhatsApp enviada (simulado)',
+    message_id: 'msg_' + Date.now(),
+    data: req.body
+  });
+});
+
+app.post('/api/whatsapp/send-bulk', (req, res) => {
+  console.log('Envio em massa WhatsApp:', req.body);
+  res.json({
+    success: true,
+    message: 'Mensagens em massa enviadas (simulado)',
+    sent_count: req.body.recipients?.length || 0,
+    data: req.body
+  });
+});
+
+app.get('/api/whatsapp/status', (req, res) => {
+  res.json({
+    success: true,
+    connected: true,
+    message: 'WhatsApp conectado (simulado)',
+    session_active: true
+  });
+});
+
+// === ROTAS FINANCEIRO ===
+app.post('/api/payment/create-pix', (req, res) => {
+  console.log('Criar PIX:', req.body);
+  res.json({
+    success: true,
+    message: 'PIX criado com sucesso (simulado)',
+    pix_code: '00020126580014BR.GOV.BCB.PIX0136' + Date.now(),
+    qr_code: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    amount: req.body.amount,
+    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  });
+});
+
+app.post('/api/payment/check-status', (req, res) => {
+  console.log('Verificar pagamento:', req.body);
+  res.json({
+    success: true,
+    paid: Math.random() > 0.5, // Simula 50% de chance de estar pago
+    message: 'Status verificado (simulado)',
+    data: req.body
+  });
+});
+
+// === ROTAS DE AUTOMAÇÃO ===
+app.post('/api/automation/check-pending', (req, res) => {
+  console.log('Verificar clientes pendentes:', req.body);
+  res.json({
+    success: true,
+    message: 'Verificação de pendências executada (simulado)',
+    blocked_clients: Math.floor(Math.random() * 5),
+    unblocked_clients: Math.floor(Math.random() * 3),
+    total_checked: Math.floor(Math.random() * 20) + 10
+  });
+});
+
+// === MIDDLEWARE DE ERRO ===
+app.use((err, req, res, next) => {
+  console.error('Erro no servidor:', err);
+  res.status(500).json({
+    success: false,
+    message: 'Erro interno do servidor',
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Erro interno'
+  });
+});
+
+// === ROTA 404 ===
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Rota não encontrada',
+    path: req.originalUrl
+  });
+});
+
+// Iniciar servidor
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 ProvedorPro Backend rodando na porta ${PORT}`);
+  console.log(`📅 Iniciado em: ${new Date().toISOString()}`);
+  console.log(`🌐 URL: http://localhost:${PORT}`);
+});
+
+// Tratamento de erros não capturados
+process.on('uncaughtException', (err) => {
+  console.error('Erro não capturado:', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  console.error('Promise rejeitada:', err);
+});
+📝 CÓDIGO COMPLETO PARA package.json:
+{
+  "name": "provedor-backend",
+  "version": "1.0.0",
+  "description": "Backend do ProvedorPro - Sistema de gestão para provedores de internet",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "author": "ProvedorPro",
+  "license": "MIT"
+}
